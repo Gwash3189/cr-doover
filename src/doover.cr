@@ -1,10 +1,10 @@
-# `Retry` provides an intuitive, idiomatic API for retrying any Crystal block
+# `Doover` provides an intuitive, idiomatic API for retrying any Crystal block
 # with configurable retry limits, base delay, exponential backoff, and jitter.
 #
 # ### Basic Usage
 #
 # ```
-# require "retry"
+# require "doover"
 #
 # retry(limit: 3, backoff: true, jitter: true, delay: 3.seconds) do |error|
 #   if error
@@ -16,8 +16,8 @@
 #   fetch_remote_resource()
 # end
 # ```
-module Retry
-  VERSION = "0.1.0"
+module Doover
+  VERSION = "0.2.0"
 
   # Executes the given block and retries up to `limit` times when an exception is raised.
   #
@@ -74,7 +74,7 @@ module Retry
     backoff : Bool | Number = false,
     jitter : Bool | Float64 = false,
     max_delay : Time::Span? = nil,
-    random : Random = Random::DEFAULT
+    random : Random = Random::DEFAULT,
   ) : Time::Span
     return Time::Span.zero if base_delay <= Time::Span.zero
 
@@ -134,7 +134,7 @@ module Retry
   end
 end
 
-# Top-level `retry` helper delegating to `Retry.run`.
+# Top-level `retry` helper delegating to `Doover.run`.
 def retry(
   limit : Int32 = 3,
   delay : Time::Span = 1.second,
@@ -148,7 +148,7 @@ def retry(
   sleeper = ->(span : Time::Span) { sleep(span) },
   &
 )
-  Retry.run(
+  Doover.run(
     limit: limit,
     delay: delay,
     backoff: backoff,

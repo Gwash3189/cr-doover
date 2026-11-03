@@ -6,7 +6,11 @@ end
 private class FatalAuthError < Exception
 end
 
-describe Retry do
+describe Doover do
+  it "exposes the shard version" do
+    Doover::VERSION.should eq("0.2.0")
+  end
+
   it "executes the block once and returns its value when no error occurs" do
     attempts = 0
     seen_errors = [] of Exception?

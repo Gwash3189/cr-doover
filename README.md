@@ -1,4 +1,4 @@
-# retry
+# cr-doover
 
 An intuitive, idiomatic retry library for Crystal blocks with configurable retry limits, delays, exponential backoff, and jitter.
 
@@ -8,8 +8,8 @@ An intuitive, idiomatic retry library for Crystal blocks with configurable retry
 
    ```yaml
    dependencies:
-     retry:
-       github: Gwash3189/retry
+     doover:
+       github: Gwash3189/cr-doover
    ```
 
 2. Run `shards install`
@@ -17,7 +17,7 @@ An intuitive, idiomatic retry library for Crystal blocks with configurable retry
 ## Usage
 
 ```crystal
-require "retry"
+require "doover"
 
 retry(limit: 3, backoff: true, jitter: true, delay: 3.seconds) do |error|
   if error
@@ -28,6 +28,8 @@ retry(limit: 3, backoff: true, jitter: true, delay: 3.seconds) do |error|
   fetch_remote_resource()
 end
 ```
+
+The same behavior is also available directly through `Doover.run`.
 
 ### Options
 

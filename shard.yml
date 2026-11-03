@@ -1,11 +1,11 @@
-name: retry
-version: 0.1.0
+name: doover
+version: 0.2.0
 
 authors:
   - Adam Beck <adamb3189@gmail.com>
 
 description: |
-  An intuitive, idiomatic retry library for Crystal blocks with configurable retry limits, delays, exponential backoff, and jitter.
+  An idiomatic Crystal port of doover: fluent retry builders with configurable backoff and lifecycle hooks.
 
 crystal: ">= 1.0.0"
 
