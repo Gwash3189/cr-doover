@@ -65,3 +65,14 @@ Run the test suite with:
 ```bash
 crystal spec
 ```
+
+## Benchmarking
+
+Measure the performance of `Doover::Backoff.compute` for each strategy with:
+
+```bash
+crystal run --release bench/backoff_bench.cr
+```
+
+The benchmark uses a seeded random source for jitter and a short IPS
+configuration, so it completes in a few seconds.
