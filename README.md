@@ -66,13 +66,23 @@ Run the test suite with:
 crystal spec
 ```
 
-## Benchmarking
+## Performance
 
-Measure the performance of `Doover::Backoff.compute` for each strategy with:
+`Runner#run` is allocation-free per attempt. Configuration is copied only
+during builder setup, handler arrays are iterated in place, and delay
+calculations return `Time::Span` values without intermediate objects.
+
+Configurations guaranteed to have zero delay — the `immediate` strategy, a
+non-positive base delay, or a non-positive `max_delay` — bypass both
+`Backoff.compute` and the sleeper. When full jitter produces zero for a
+non-zero base delay, the delay is still computed but the sleeper is skipped.
+
+Measure delay calculation and runner overhead in release mode with:
 
 ```bash
 crystal run --release bench/backoff_bench.cr
 ```
 
-The benchmark uses a seeded random source for jitter and a short IPS
-configuration, so it completes in a few seconds.
+The benchmark uses a seeded random source and a short IPS configuration, so it
+completes in a few seconds. Numbers vary by machine; run it locally for current
+figures.

@@ -287,6 +287,22 @@ describe Doover::Runner do
 
         sleeper.sleeps.should be_empty
       end
+
+      it "never calls the sleeper when max_delay caps the delay to zero" do
+        sleeper = DooverRecordingSleeper.new
+
+        expect_raises(DooverTransientError) do
+          Doover.constant
+            .delay(1.second)
+            .max_delay(Time::Span.zero)
+            .attempts(3)
+            .work { raise DooverTransientError.new("boom") }
+            .sleep_with { |span| sleeper.record(span) }
+            .run
+        end
+
+        sleeper.sleeps.should be_empty
+      end
     end
 
     context "with retry handlers" do
@@ -514,18 +530,20 @@ describe Doover::Runner do
 
       it "does not call the sleeper when jitter produces a zero delay" do
         sleeper = DooverRecordingSleeper.new
+        random = DooverFixedRandom.new(0.0)
 
         expect_raises(DooverTransientError) do
           Doover.constant
             .delay(1.second)
             .jitter
-            .random(DooverFixedRandom.new(0.0))
+            .random(random)
             .attempts(2)
             .work { raise DooverTransientError.new("boom") }
             .sleep_with { |span| sleeper.record(span) }
             .run
         end
 
+        random.calls.should eq(1)
         sleeper.sleeps.should be_empty
       end
     end
