@@ -1,6 +1,6 @@
 # cr-doover
 
-An intuitive, idiomatic retry library for Crystal blocks with configurable retry limits, delays, exponential backoff, and jitter.
+A fluent, type-safe retry library for Crystal with configurable backoff, full jitter, and lifecycle hooks.
 
 ## Installation
 
@@ -19,28 +19,44 @@ An intuitive, idiomatic retry library for Crystal blocks with configurable retry
 ```crystal
 require "doover"
 
-retry(limit: 3, backoff: true, jitter: true, delay: 3.seconds) do |error|
-  if error
-    STDERR.puts "Attempt failed (#{error.message}), retrying..."
+result = Doover
+  .exponential
+  .attempts(3)
+  .delay(100.milliseconds)
+  .jitter
+  .max_delay(2.seconds)
+  .work { |attempt| fetch_resource(attempt) }
+  .on_retry do |error, attempt|
+    Log.warn { "attempt #{attempt} failed: #{error.message}" }
+    !error.is_a?(FatalError) # return false to abort immediately
   end
-
-  # Your fallible logic here
-  fetch_remote_resource()
-end
+  .on_exhausted do |error, attempts|
+    Log.error { "gave up after #{attempts} attempts" }
+  end
+  .run
 ```
 
-The same behavior is also available directly through `Doover.run`.
+Configuration methods can be called before or after `#work`.
 
-### Options
+## Strategies
 
-- `limit` (`Int32`, default: `3`): Maximum number of retry attempts after initial failure.
-- `delay` (`Time::Span`, default: `1.second`): Base wait time between attempts.
-- `backoff` (`Bool | Number`, default: `false`): Enables exponential backoff (`2.0` multiplier when `true`, or custom multiplier).
-- `jitter` (`Bool | Float64`, default: `false`): Adds uniform randomness (`±50%` when `true`, or custom ratio `0.0..1.0`) to prevent thundering herds.
-- `max_delay` (`Time::Span?`, default: `nil`): Upper cap on delay duration.
-- `only`: Exception types to catch and retry (default: `{Exception}`).
-- `except`: Exception types to ignore and re-raise immediately.
-- `on_retry`: Callback proc invoked with `(exception, retry_number, wait_span)` before sleeping.
+- `Doover.exponential` (default): `delay * 2^(attempt - 1)`
+- `Doover.linear`: `delay * attempt`
+- `Doover.constant`: `delay` on every retry
+- `Doover.immediate`: no delay
+
+## Configuration
+
+- `attempts(count)` — total number of work calls, including the first (default: `3`). `attempts(3)` allows at most two sleeps.
+- `delay(span)` — base delay (default: `100.milliseconds`).
+- `jitter(enabled = true)` — full jitter, sampling uniformly from `[0, calculated_delay]` (default: disabled).
+- `max_delay(span)` — caps the calculated delay before jitter is applied.
+- `random(source)` — inject a `Random` source for deterministic jitter.
+- `sleep_with { |span| ... }` — replace the sleeper (useful in tests).
+- `on_retry { |error, attempt| ... }` — runs after a failed attempt while retries remain, before sleeping. Return `false` to abort immediately; any other value continues.
+- `on_exhausted { |error, attempts| ... }` — runs after the final failed attempt, before the original exception is re-raised.
+- `work { |attempt| ... }` — provides the work function, receives a 1-indexed attempt number, and returns a typed `Runner`.
+- `run` — executes the work and returns its result. A runner can be run repeatedly, starting over at attempt 1.
 
 ## Testing
 
