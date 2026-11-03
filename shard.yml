@@ -1,11 +1,12 @@
 name: doover
-version: 0.2.0
+version: 0.3.0
 
 authors:
   - Adam Beck <adamb3189@gmail.com>
 
 description: |
-  An idiomatic Crystal port of doover: fluent retry builders with configurable backoff and lifecycle hooks.
+  An idiomatic Crystal port of doover: fluent retry builders, declarative instance-method
+  wrappers, configurable backoff, and lifecycle hooks.
 
 crystal: ">= 1.0.0"
 

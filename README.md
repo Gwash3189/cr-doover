@@ -1,6 +1,6 @@
 # cr-doover
 
-A fluent, type-safe retry library for Crystal with configurable backoff, full jitter, and lifecycle hooks.
+A fluent, type-safe retry library for Crystal with configurable backoff, full jitter, lifecycle hooks, and declarative instance-method wrapping.
 
 ## Installation
 
@@ -57,6 +57,67 @@ Configuration methods can be called before or after `#work`.
 - `on_exhausted { |error, attempts| ... }` — runs after the final failed attempt, before the original exception is re-raised.
 - `work { |attempt| ... }` — provides the work function, receives a 1-indexed attempt number, and returns a typed `Runner`.
 - `run` — executes the work and returns its result. A runner can be run repeatedly, starting over at attempt 1.
+
+## Wrapping instance methods
+
+`include Doover` adds a `do_over` declaration that wraps an instance method
+with the same retry behavior. The declaration may appear before or after the
+method definition.
+
+```crystal
+class Payments
+  include Doover
+
+  do_over method: :charge,
+    strategy: :exponential,
+    attempts: 3,
+    delay: 100.milliseconds,
+    jitter: true,
+    max_delay: 2.seconds,
+    on_retry: :charge_retry,
+    on_exhausted: :charge_exhausted
+
+  def charge(amount : Int32) : String
+    # call the downstream payment service
+  end
+
+  private def charge_retry(error : Exception, attempt : Int32) : Bool
+    !error.is_a?(FatalError) # return false to abort immediately
+  end
+
+  private def charge_exhausted(error : Exception, attempts : Int32) : Nil
+    Log.error { "gave up after #{attempts} attempts" }
+  end
+end
+```
+
+The wrapper preserves the original method signature, including overloads,
+default and named arguments, splat and double-splat arguments, `yield`-based
+blocks, typed captured blocks, and private or protected visibility.
+
+`do_over` accepts the same strategy, attempts, delay, jitter, and max-delay
+options as the fluent API. It also accepts optional `sleeper:` and `random:`
+method symbols, which are useful for deterministic tests:
+
+```crystal
+do_over method: :perform,
+  strategy: :constant,
+  attempts: 2,
+  delay: 10.milliseconds,
+  sleeper: :record_sleep,
+  random: :random_source
+```
+
+The generated wrapper builds a fresh configuration per method call; retry
+attempts themselves do not allocate.
+
+Limitations:
+
+- Only instance methods can be wrapped.
+- The wrapped method must be declared on the same type that calls `do_over`.
+- Abstract methods and operator methods are rejected at compile time.
+- A captured block parameter must have a type restriction. Use an anonymous
+  `&` block or `yield` when the block is not captured.
 
 ## Testing
 

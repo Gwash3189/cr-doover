@@ -74,5 +74,30 @@ module Doover
       handlers << handler
       copy_with(exhausted_handlers: handlers)
     end
+
+    # Returns `true` when the configuration guarantees a zero delay for every
+    # retry, allowing the retry loop to bypass backoff calculation and sleeping.
+    def zero_delay? : Bool
+      return true if @strategy.immediate?
+      return true if @base_delay <= Time::Span.zero
+
+      if max = @max_delay
+        return true if max <= Time::Span.zero
+      end
+
+      false
+    end
+
+    # Calculates the delay before the next attempt.
+    def delay_for(attempt : Int32) : Time::Span
+      Backoff.compute(
+        strategy: @strategy,
+        base_delay: @base_delay,
+        attempt: attempt,
+        jitter: @jitter,
+        max_delay: @max_delay,
+        random: @random
+      )
+    end
   end
 end

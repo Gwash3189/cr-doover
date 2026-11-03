@@ -22,6 +22,9 @@
 #   end
 #   .run
 # ```
+#
+# Instance methods can also be wrapped directly with `include Doover` and the
+# `do_over` macro. See `Doover::Builder` for the fluent API.
 module Doover
 end
 
@@ -30,5 +33,7 @@ require "./doover/strategy"
 require "./doover/config"
 require "./doover/backoff"
 require "./doover/configurable"
+require "./doover/retry_loop"
 require "./doover/runner"
 require "./doover/builder"
+require "./doover/macros"
