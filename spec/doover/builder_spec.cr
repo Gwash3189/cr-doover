@@ -1,55 +1,150 @@
 require "../spec_helper"
 
-describe Doover do
+describe Doover::Builder do
   describe ".exponential" do
-    it "builds a builder with the exponential strategy" do
-      Doover.exponential.config.strategy.should eq(Doover::Strategy::Exponential)
+    it "retries with exponentially increasing delays" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.exponential
+          .delay(100.milliseconds)
+          .attempts(4)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should eq([100.milliseconds, 200.milliseconds, 400.milliseconds])
     end
   end
 
   describe ".linear" do
-    it "builds a builder with the linear strategy" do
-      Doover.linear.config.strategy.should eq(Doover::Strategy::Linear)
+    it "retries with linearly increasing delays" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.linear
+          .delay(100.milliseconds)
+          .attempts(4)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should eq([100.milliseconds, 200.milliseconds, 300.milliseconds])
     end
   end
 
   describe ".constant" do
-    it "builds a builder with the constant strategy" do
-      Doover.constant.config.strategy.should eq(Doover::Strategy::Constant)
+    it "retries with the same delay every time" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.constant
+          .delay(100.milliseconds)
+          .attempts(4)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should eq([100.milliseconds, 100.milliseconds, 100.milliseconds])
     end
   end
 
   describe ".immediate" do
-    it "builds a builder with the immediate strategy" do
-      Doover.immediate.config.strategy.should eq(Doover::Strategy::Immediate)
+    it "retries without sleeping" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.immediate
+          .attempts(3)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should be_empty
     end
   end
 
   describe "defaults" do
-    it "uses the exponential strategy" do
-      Doover::Config.new.strategy.should eq(Doover::Strategy::Exponential)
+    it "uses exponential backoff" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.exponential
+          .attempts(4)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should eq([100.milliseconds, 200.milliseconds, 400.milliseconds])
     end
 
     it "uses three total attempts" do
-      Doover.exponential.config.attempts.should eq(3)
+      calls = 0
+
+      expect_raises(DooverTransientError) do
+        Doover.exponential
+          .work do
+            calls += 1
+            raise DooverTransientError.new("boom")
+          end
+          .sleep_with { |_span| }
+          .run
+      end
+
+      calls.should eq(3)
     end
 
     it "uses a 100 millisecond base delay" do
-      Doover.exponential.config.base_delay.should eq(100.milliseconds)
-    end
+      sleeper = DooverRecordingSleeper.new
 
-    it "disables jitter" do
-      Doover.exponential.config.jitter.should be_false
-    end
+      expect_raises(DooverTransientError) do
+        Doover.exponential
+          .attempts(2)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
 
-    it "has no maximum delay" do
-      Doover.exponential.config.max_delay.should be_nil
+      sleeper.sleeps.should eq([100.milliseconds])
     end
   end
 
   describe "#attempts" do
-    it "sets the total number of attempts" do
-      Doover.exponential.attempts(5).config.attempts.should eq(5)
+    it "uses the configured total number of attempts" do
+      calls = 0
+
+      expect_raises(DooverTransientError) do
+        Doover.immediate
+          .attempts(5)
+          .work do
+            calls += 1
+            raise DooverTransientError.new("boom")
+          end
+          .run
+      end
+
+      calls.should eq(5)
+    end
+
+    it "accepts a single attempt" do
+      calls = 0
+
+      expect_raises(DooverTransientError) do
+        Doover.immediate
+          .attempts(1)
+          .work do
+            calls += 1
+            raise DooverTransientError.new("boom")
+          end
+          .run
+      end
+
+      calls.should eq(1)
     end
 
     it "raises when fewer than one attempt is requested" do
@@ -66,8 +161,34 @@ describe Doover do
   end
 
   describe "#delay" do
-    it "sets the base delay" do
-      Doover.exponential.delay(250.milliseconds).config.base_delay.should eq(250.milliseconds)
+    it "uses the configured base delay" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.constant
+          .delay(250.milliseconds)
+          .attempts(3)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should eq([250.milliseconds, 250.milliseconds])
+    end
+
+    it "accepts a zero delay without sleeping" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.constant
+          .delay(Time::Span.zero)
+          .attempts(3)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should be_empty
     end
 
     it "raises for a negative delay" do
@@ -78,18 +199,72 @@ describe Doover do
   end
 
   describe "#jitter" do
-    it "enables jitter by default" do
-      Doover.exponential.jitter.config.jitter.should be_true
+    it "enables full jitter" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.constant
+          .delay(1.second)
+          .jitter
+          .random(DooverFixedRandom.new(0.25))
+          .attempts(2)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should eq([250.milliseconds])
     end
 
     it "can explicitly disable jitter" do
-      Doover.exponential.jitter(false).config.jitter.should be_false
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.constant
+          .delay(1.second)
+          .jitter(false)
+          .random(DooverFixedRandom.new(0.25))
+          .attempts(2)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should eq([1.second])
     end
   end
 
   describe "#max_delay" do
-    it "sets the maximum delay" do
-      Doover.exponential.max_delay(2.seconds).config.max_delay.should eq(2.seconds)
+    it "caps the calculated delay" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.exponential
+          .delay(1.second)
+          .max_delay(3.seconds)
+          .attempts(4)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should eq([1.second, 2.seconds, 3.seconds])
+    end
+
+    it "accepts a zero maximum delay without sleeping" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.constant
+          .delay(1.second)
+          .max_delay(Time::Span.zero)
+          .attempts(2)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should be_empty
     end
 
     it "raises for a negative maximum delay" do
@@ -100,23 +275,50 @@ describe Doover do
   end
 
   describe "#random" do
-    it "sets the random source" do
-      source = DooverFixedRandom.new(0.5)
-      Doover.exponential.random(source).config.random.next_float.should eq(0.5)
+    it "uses the configured random source for jitter" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.constant
+          .delay(1.second)
+          .jitter
+          .random(DooverFixedRandom.new(0.75))
+          .attempts(2)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should eq([750.milliseconds])
     end
   end
 
   describe "#sleep_with" do
-    it "returns a builder" do
-      builder = Doover.exponential.sleep_with { |_span| nil }
-      builder.should be_a(Doover::Builder)
+    it "uses the provided sleeper between attempts" do
+      sleeper = DooverRecordingSleeper.new
+
+      expect_raises(DooverTransientError) do
+        Doover.constant
+          .delay(1.second)
+          .attempts(2)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| sleeper.record(span) }
+          .run
+      end
+
+      sleeper.sleeps.should eq([1.second])
     end
   end
 
   describe "#work" do
-    it "returns a typed runner" do
-      runner = Doover.exponential.work { |attempt| attempt }
-      runner.should be_a(Doover::Runner(Int32))
+    it "returns a runner typed by the work result" do
+      runner = Doover.immediate.work { "ok" }
+
+      runner.should be_a(Doover::Runner(String))
+    end
+
+    it "captures the work block for later execution" do
+      Doover.immediate.work { "ok" }.run.should eq("ok")
     end
   end
 
@@ -131,35 +333,130 @@ describe Doover do
   end
 
   describe "configuration branching" do
-    it "does not mutate the original builder" do
-      builder = Doover.constant
-      builder.attempts(5)
-      builder.config.attempts.should eq(3)
+    it "does not leak attempt changes to the original builder" do
+      base = Doover.immediate
+      branch = base.attempts(1)
+      base_calls = 0
+      branch_calls = 0
+
+      expect_raises(DooverTransientError) do
+        base.work do
+          base_calls += 1
+          raise DooverTransientError.new("boom")
+        end.run
+      end
+
+      expect_raises(DooverTransientError) do
+        branch.work do
+          branch_calls += 1
+          raise DooverTransientError.new("boom")
+        end.run
+      end
+
+      base_calls.should eq(3)
+      branch_calls.should eq(1)
     end
 
-    it "keeps independent branches separate" do
-      builder = Doover.constant
-      first = builder.attempts(5)
-      second = builder.attempts(2)
+    it "does not leak delay changes to the original builder" do
+      base = Doover.constant.delay(1.second)
+      branch = base.delay(2.seconds)
+      base_sleeper = DooverRecordingSleeper.new
+      branch_sleeper = DooverRecordingSleeper.new
 
-      first.config.attempts.should eq(5)
-      second.config.attempts.should eq(2)
+      expect_raises(DooverTransientError) do
+        base.attempts(3)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| base_sleeper.record(span) }
+          .run
+      end
+
+      expect_raises(DooverTransientError) do
+        branch.attempts(3)
+          .work { raise DooverTransientError.new("boom") }
+          .sleep_with { |span| branch_sleeper.record(span) }
+          .run
+      end
+
+      base_sleeper.sleeps.should eq([1.second, 1.second])
+      branch_sleeper.sleeps.should eq([2.seconds, 2.seconds])
     end
 
-    it "does not share retry handler storage between branches" do
-      builder = Doover.immediate
-      with_handler = builder.on_retry { true }
+    it "does not leak retry handlers into the original builder" do
+      base = Doover.immediate
+      calls = 0
+      branch = base.on_retry do
+        calls += 1
+        true
+      end
 
-      builder.config.retry_handlers.size.should eq(0)
-      with_handler.config.retry_handlers.size.should eq(1)
+      expect_raises(DooverTransientError) do
+        base.attempts(2)
+          .work { raise DooverTransientError.new("boom") }
+          .run
+      end
+
+      calls.should eq(0)
+
+      expect_raises(DooverTransientError) do
+        branch.attempts(2)
+          .work { raise DooverTransientError.new("boom") }
+          .run
+      end
+
+      calls.should eq(1)
     end
 
-    it "does not mutate earlier handlers when adding another" do
-      first = Doover.immediate.on_retry { true }
-      second = first.on_retry { true }
+    it "does not leak exhausted handlers into the original builder" do
+      base = Doover.immediate
+      calls = 0
+      branch = base.on_exhausted { calls += 1 }
 
-      first.config.retry_handlers.size.should eq(1)
-      second.config.retry_handlers.size.should eq(2)
+      expect_raises(DooverTransientError) do
+        base.attempts(1)
+          .work { raise DooverTransientError.new("boom") }
+          .run
+      end
+
+      calls.should eq(0)
+
+      expect_raises(DooverTransientError) do
+        branch.attempts(1)
+          .work { raise DooverTransientError.new("boom") }
+          .run
+      end
+
+      calls.should eq(1)
+    end
+
+    it "does not mutate earlier handler registrations when adding another" do
+      first_calls = 0
+      second_calls = 0
+      first = Doover.immediate.on_retry do
+        first_calls += 1
+        true
+      end
+      second = first.on_retry do
+        second_calls += 1
+        true
+      end
+
+      expect_raises(DooverTransientError) do
+        first.attempts(2)
+          .work { raise DooverTransientError.new("boom") }
+          .run
+      end
+
+      first_calls.should eq(1)
+      second_calls.should eq(0)
+
+      expect_raises(DooverTransientError) do
+        second.attempts(2)
+          .work { raise DooverTransientError.new("boom") }
+          .run
+      end
+
+      first_calls.should eq(2)
+      second_calls.should eq(1)
     end
   end
 end

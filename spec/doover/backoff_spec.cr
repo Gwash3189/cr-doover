@@ -2,46 +2,101 @@ require "../spec_helper"
 
 describe Doover::Backoff do
   describe ".compute" do
-    context "with an immediate strategy" do
-      it "returns zero" do
+    context "with the immediate strategy" do
+      it "returns zero on the first attempt" do
         Doover::Backoff
           .compute(Doover::Strategy::Immediate, 1.second, 1)
           .should eq(Time::Span.zero)
       end
+
+      it "returns zero on later attempts" do
+        Doover::Backoff
+          .compute(Doover::Strategy::Immediate, 1.second, 10)
+          .should eq(Time::Span.zero)
+      end
+
+      it "returns zero when jitter is enabled" do
+        Doover::Backoff
+          .compute(
+            Doover::Strategy::Immediate,
+            1.second,
+            2,
+            jitter: true,
+            random: DooverFixedRandom.new(0.5)
+          )
+          .should eq(Time::Span.zero)
+      end
     end
 
-    context "when the base delay is not positive" do
-      it "returns zero for every strategy" do
-        strategies = [
-          Doover::Strategy::Exponential,
-          Doover::Strategy::Linear,
-          Doover::Strategy::Constant,
-        ]
+    context "when the base delay is zero" do
+      it "returns zero for the exponential strategy" do
+        Doover::Backoff
+          .compute(Doover::Strategy::Exponential, Time::Span.zero, 3)
+          .should eq(Time::Span.zero)
+      end
 
-        strategies.each do |strategy|
-          Doover::Backoff.compute(strategy, Time::Span.zero, 3).should eq(Time::Span.zero)
-          Doover::Backoff.compute(strategy, -1.second, 3).should eq(Time::Span.zero)
-        end
+      it "returns zero for the linear strategy" do
+        Doover::Backoff
+          .compute(Doover::Strategy::Linear, Time::Span.zero, 3)
+          .should eq(Time::Span.zero)
+      end
+
+      it "returns zero for the constant strategy" do
+        Doover::Backoff
+          .compute(Doover::Strategy::Constant, Time::Span.zero, 3)
+          .should eq(Time::Span.zero)
+      end
+    end
+
+    context "when the base delay is negative" do
+      it "returns zero for the exponential strategy" do
+        Doover::Backoff
+          .compute(Doover::Strategy::Exponential, -1.second, 3)
+          .should eq(Time::Span.zero)
+      end
+
+      it "returns zero for the linear strategy" do
+        Doover::Backoff
+          .compute(Doover::Strategy::Linear, -1.second, 3)
+          .should eq(Time::Span.zero)
+      end
+
+      it "returns zero for the constant strategy" do
+        Doover::Backoff
+          .compute(Doover::Strategy::Constant, -1.second, 3)
+          .should eq(Time::Span.zero)
       end
     end
 
     context "with the exponential strategy" do
-      it "doubles the base delay for each attempt" do
-        delays = (1..3).map do |attempt|
+      it "returns base * 2^(attempt - 1)" do
+        delays = (1..4).map do |attempt|
           Doover::Backoff.compute(Doover::Strategy::Exponential, 100.milliseconds, attempt)
         end
 
-        delays.should eq([100.milliseconds, 200.milliseconds, 400.milliseconds])
+        delays.should eq([100.milliseconds, 200.milliseconds, 400.milliseconds, 800.milliseconds])
+      end
+
+      it "treats attempts below one as the first attempt" do
+        Doover::Backoff
+          .compute(Doover::Strategy::Exponential, 100.milliseconds, 0)
+          .should eq(100.milliseconds)
       end
     end
 
     context "with the linear strategy" do
-      it "multiplies the base delay by the attempt number" do
-        delays = (1..3).map do |attempt|
+      it "returns base * attempt" do
+        delays = (1..4).map do |attempt|
           Doover::Backoff.compute(Doover::Strategy::Linear, 100.milliseconds, attempt)
         end
 
-        delays.should eq([100.milliseconds, 200.milliseconds, 300.milliseconds])
+        delays.should eq([100.milliseconds, 200.milliseconds, 300.milliseconds, 400.milliseconds])
+      end
+
+      it "treats attempts below one as the first attempt" do
+        Doover::Backoff
+          .compute(Doover::Strategy::Linear, 100.milliseconds, -3)
+          .should eq(100.milliseconds)
       end
     end
 
@@ -56,7 +111,7 @@ describe Doover::Backoff do
     end
 
     context "when a maximum delay is configured" do
-      it "clamps the calculated delay" do
+      it "caps the exponential delay" do
         delays = (1..4).map do |attempt|
           Doover::Backoff.compute(
             Doover::Strategy::Exponential,
@@ -68,10 +123,54 @@ describe Doover::Backoff do
 
         delays.should eq([1.second, 2.seconds, 3.seconds, 3.seconds])
       end
+
+      it "caps the linear delay" do
+        Doover::Backoff
+          .compute(
+            Doover::Strategy::Linear,
+            1.second,
+            5,
+            max_delay: 3.seconds
+          )
+          .should eq(3.seconds)
+      end
+
+      it "caps the constant delay" do
+        Doover::Backoff
+          .compute(
+            Doover::Strategy::Constant,
+            1.second,
+            1,
+            max_delay: 400.milliseconds
+          )
+          .should eq(400.milliseconds)
+      end
+
+      it "leaves delays below the cap unchanged" do
+        Doover::Backoff
+          .compute(
+            Doover::Strategy::Exponential,
+            100.milliseconds,
+            2,
+            max_delay: 1.second
+          )
+          .should eq(200.milliseconds)
+      end
+
+      it "supports a zero maximum delay" do
+        Doover::Backoff
+          .compute(
+            Doover::Strategy::Constant,
+            1.second,
+            1,
+            max_delay: Time::Span.zero
+          )
+          .should eq(Time::Span.zero)
+      end
     end
 
     context "with jitter enabled" do
-      it "returns a fraction of the calculated delay" do
+      it "returns a deterministic fraction of the calculated delay" do
         Doover::Backoff
           .compute(
             Doover::Strategy::Constant,
@@ -81,6 +180,18 @@ describe Doover::Backoff do
             random: DooverFixedRandom.new(0.25)
           )
           .should eq(250.milliseconds)
+      end
+
+      it "samples below half of the calculated delay" do
+        Doover::Backoff
+          .compute(
+            Doover::Strategy::Constant,
+            1.second,
+            1,
+            jitter: true,
+            random: DooverFixedRandom.new(0.1)
+          )
+          .should eq(100.milliseconds)
       end
 
       it "can produce a zero delay" do
@@ -95,16 +206,16 @@ describe Doover::Backoff do
           .should eq(Time::Span.zero)
       end
 
-      it "samples below half of the calculated delay" do
+      it "can produce the full calculated delay" do
         Doover::Backoff
           .compute(
             Doover::Strategy::Constant,
             1.second,
             1,
             jitter: true,
-            random: DooverFixedRandom.new(0.1)
+            random: DooverFixedRandom.new(1.0)
           )
-          .should eq(100.milliseconds)
+          .should eq(1.second)
       end
 
       it "stays within the calculated delay for a seeded random source" do
@@ -136,6 +247,18 @@ describe Doover::Backoff do
             random: DooverFixedRandom.new(0.5)
           )
           .should eq(200.milliseconds)
+      end
+
+      it "returns zero for a zero base delay" do
+        Doover::Backoff
+          .compute(
+            Doover::Strategy::Constant,
+            Time::Span.zero,
+            1,
+            jitter: true,
+            random: DooverFixedRandom.new(0.5)
+          )
+          .should eq(Time::Span.zero)
       end
     end
 
