@@ -111,6 +111,22 @@ describe Doover::Runner do
         received.should eq({"boom", 2})
       end
 
+      it "re-raises the original exception object after running exhausted handlers" do
+        error = DooverTransientError.new("boom")
+        exhausted_error : Exception? = nil
+
+        raised = expect_raises(DooverTransientError, "boom") do
+          Doover.immediate
+            .attempts(2)
+            .work { raise error }
+            .on_exhausted { |final_error, _attempts| exhausted_error = final_error }
+            .run
+        end
+
+        exhausted_error.should be(error)
+        raised.should be(error)
+      end
+
       it "runs every exhausted handler in registration order" do
         calls = [] of Symbol
 
@@ -249,16 +265,35 @@ describe Doover::Runner do
       received.should eq([{"boom 1", 1}])
     end
 
+    it "runs after the failed work attempt and before sleeping" do
+      calls = [] of Symbol
+
+      result = Doover.constant
+        .delay(1.second)
+        .attempts(2)
+        .work do |attempt|
+          calls << :work
+          raise DooverTransientError.new("boom") if attempt == 1
+          attempt
+        end
+        .on_retry { calls << :retry }
+        .sleep_with { |_span| calls << :sleep }
+        .run
+
+      result.should eq(2)
+      calls.should eq([:work, :retry, :sleep, :work])
+    end
+
     it "aborts immediately when a handler returns false" do
       calls = 0
       exhausted = 0
 
-      raised = expect_raises(DooverTransientError, "fatal") do
+      raised = expect_raises(DooverFatalError, "fatal") do
         Doover.immediate
           .attempts(5)
           .work do
             calls += 1
-            raise DooverTransientError.new("fatal")
+            raise DooverFatalError.new("fatal")
           end
           .on_retry { |_error, _attempt| false }
           .on_exhausted { exhausted += 1 }

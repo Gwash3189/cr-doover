@@ -26,6 +26,10 @@ describe Doover do
   end
 
   describe "defaults" do
+    it "uses the exponential strategy" do
+      Doover::Config.new.strategy.should eq(Doover::Strategy::Exponential)
+    end
+
     it "uses three total attempts" do
       Doover.exponential.config.attempts.should eq(3)
     end
